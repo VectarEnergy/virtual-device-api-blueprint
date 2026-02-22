@@ -1,0 +1,25 @@
+# Render service manifest (example). To deploy using this file, run:
+# render deploy -y render.yaml
+
+services:
+  - type: web_service
+    name: virtual-device-api-blueprint
+    env: docker
+    plan: free
+    repo: <your-git-repo-url>
+    branch: main
+    buildCommand: ""
+    startCommand: "node dist/app.js"
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: VICTRON_API_URL
+        sync: true
+      - key: VICTRON_API_TOKEN
+        sync: true
+      - key: VICTRON_SITE_ID
+        sync: true
+
+databases:
+  - name: virtual-device-db
+    engine: postgresql
+    plan: readonly
