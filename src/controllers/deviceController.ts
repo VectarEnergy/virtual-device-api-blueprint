@@ -31,8 +31,11 @@ export const getSolarYield = async (req: Request, res: Response, next: NextFunct
         retrievedAt: retrievedAtIso
       };
     }
-    // Do not return siteId per request — only return retrievedAt, lastHour and cumulative_kwh
-    res.json({ retrievedAt: new Date().toISOString(), lastHour: last, cumulative_kwh: cumulative });
+  // Do not return siteId per request — return retrievedAt, lastHour, cumulative_kwh
+  // and the VRM-reported total for the hour (if present) as `vrm_total_kwh`.
+  const response: any = { retrievedAt: new Date().toISOString(), lastHour: last, cumulative_kwh: cumulative };
+  if (last && (((last as any).vrmTotal) || (last as any).vrmTotal === 0)) response.vrm_total_kwh = Number((last as any).vrmTotal);
+  res.json(response);
   } catch (err) {
     next(err);
   }

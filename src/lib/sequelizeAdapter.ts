@@ -1,6 +1,7 @@
-import path from 'path';
+import { DataTypes, Model, Sequelize } from 'sequelize';
+
 import fs from 'fs/promises';
-import { Sequelize, DataTypes, Model } from 'sequelize';
+import path from 'path';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const SQLITE_PATH = path.join(DATA_DIR, 'solar-yield.sqlite');
@@ -23,7 +24,18 @@ export const initSequelize = async () => {
   }
 
   if (process.env.DATABASE_URL) {
-    sequelize = new Sequelize(process.env.DATABASE_URL, { logging: false });
+
+    sequelize = new Sequelize(process.env.DATABASE_URL, {
+      dialect: 'postgres',
+      logging: false,
+      dialectOptions: {
+        ssl: {
+          require: true,
+          // Allow self-signed / unverifiable certs in typical managed DB setups.
+          rejectUnauthorized: false
+        }
+      }
+    });
   } else {
     sequelize = new Sequelize({ dialect: 'sqlite', storage: SQLITE_PATH, logging: false });
   }

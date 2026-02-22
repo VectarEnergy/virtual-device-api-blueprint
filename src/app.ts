@@ -1,5 +1,5 @@
 /**
- * @swagger
+ * @openapi
  * /installations/solar-yield:
  *   get:
  *     summary: Get stored cumulative solar_yield and last completed hour value for the default installation
@@ -42,7 +42,7 @@
  *                   type: number
  */
 /**
- * @swagger
+ * @openapi
  * /installations/solar-yield:
  *   get:
  *     summary: Get stored cumulative solar_yield and last completed hour value for the default installation
@@ -98,13 +98,6 @@ const app = express();
 
 app.use(express.json());
 setupSwagger(app);
-// initialize DB and migrate JSON store if present
-initSequelize()
-  .then(() => migrateJsonSequelize())
-  .catch((err) => {
-    // eslint-disable-next-line no-console
-    console.error('DB init/migration error', (err as any)?.message || err);
-  });
 // support both parameterized and default-site routes
 // only expose the single canonical route — uses VICTRON_SITE_ID from env
 // support both parameterized and default-site routes
@@ -122,11 +115,27 @@ const logger = winston.createLogger({
   ]
 });
 
-app.listen(config.port, () => {
-  logger.info(`Server running on port ${config.port}`);
-});
+// initialize DB and migrate JSON store if present, then start server + scheduler
+initSequelize()
+  .then(async () => {
+    try {
+      await migrateJsonSequelize();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('DB migration error', (err as any)?.message || err);
+    }
 
-// start background scheduler for default site if configured
-if (config.defaultSiteId) {
-  startScheduler(config.defaultSiteId);
-}
+    app.listen(config.port, () => {
+      logger.info(`Server running on port ${config.port}`);
+    });
+
+    // start background scheduler for default site if configured
+    if (config.defaultSiteId) {
+      startScheduler(config.defaultSiteId);
+    }
+  })
+  .catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error('DB init error', (err as any)?.message || err);
+    process.exit(1);
+  });
