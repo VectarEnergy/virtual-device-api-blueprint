@@ -11,8 +11,10 @@ services:
       - DATABASE_URL=${DATABASE_URL}
     depends_on:
       - db
-    volumes:
-      - ./:/usr/src/app:ro
+    # Do not bind-mount the host tree into the container for production-style runs;
+    # mounting the host overwrites the image's node_modules and compiled binaries
+    # (which can cause invalid ELF / exec format errors). If you need live-reload
+    # for development prefer mounting only the `src` directory or using `npm run dev` locally.
 
   db:
     image: postgres:15

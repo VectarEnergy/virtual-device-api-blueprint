@@ -34,9 +34,9 @@ export const fetchUserMeFromVictron = async () => {
   let attempts = 0;
   while (retry && attempts < 3) {
     try {
-      response = await axios.get(`${process.env.BASE_URL}/users/me`, {
+      response = await axios.get(`${config.victronApiUrl}/users/me`, {
         headers: {
-          'x-authorization': `Token ${process.env.VICTRON_API_TOKEN}`
+          'x-authorization': `Token ${config.victronToken || process.env.VICTRON_API_TOKEN}`
         }
       });
       retry = false;
