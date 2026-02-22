@@ -12,7 +12,7 @@
  *         required: false
  *         schema:
  *           type: string
- *         description: Optional. Token to use when performing on-demand fetches. Background scheduler uses the VICTRON_API_TOKEN in .env.
+ *         description: Optional. Token to use when performing on-demand fetches. Background scheduler uses the VICTRON_API_TOKEN in .env.local.
  *     responses:
  *       200:
  *         description: Stored solar_yield report
@@ -55,7 +55,7 @@
  *         required: false
  *         schema:
  *           type: string
- *         description: Optional. Token to use when performing on-demand fetches. Background scheduler uses the VICTRON_API_TOKEN in .env.
+ *         description: Optional. Token to use when performing on-demand fetches. Background scheduler uses the VICTRON_API_TOKEN in .env.local.
  *     responses:
  *       200:
  *         description: Stored solar_yield report
@@ -85,7 +85,6 @@
  *                   type: number
  */
 import config from './config/config';
-import dotenv from 'dotenv';
 import errorMiddleware from './middlewares/errorMiddleware';
 import express from 'express';
 import { getSolarYield } from './controllers/deviceController';
@@ -93,7 +92,6 @@ import { setupSwagger } from './utils/swagger';
 import { startScheduler } from './services/solarService';
 import { initSequelize, migrateFromJsonIfNeeded as migrateJsonSequelize } from './lib/sequelizeAdapter';
 import winston from 'winston';
-dotenv.config();
 const app = express();
 
 app.use(express.json());

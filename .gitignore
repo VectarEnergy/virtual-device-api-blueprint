@@ -1,14 +1,22 @@
+
+# Node dependencies
 node_modules/
+
+# Build output
 dist/
-build/
-coverage/
-.env
-.DS_Store
-data/*.sqlite
-data/*.json
+
+# Logs
+logs/
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-/.vscode/
-/.idea/
-*.local
+pnpm-debug.log*
+
+# Environment variables
+.env
+.env.*
+
+# OS files
+.DS_Store
+
