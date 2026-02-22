@@ -2,6 +2,15 @@ import { Express } from 'express';
 import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
 
+
+import config from '../config/config';
+
+// Determine base URL for Swagger servers
+const baseUrl = process.env.BASE_URL
+  || (process.env.NODE_ENV === 'production'
+      ? `https://your-production-domain.com` // set your prod domain here if needed
+      : `http://localhost:${config.port || 3000}`);
+
 const options = {
   definition: {
     openapi: '3.0.0',
@@ -12,12 +21,10 @@ const options = {
     },
     servers: [
       {
-        url: 'http://localhost:3000',
+        url: baseUrl,
       },
     ],
   },
-  // In production (container) we run compiled JS from `dist/` so include that as well.
-  // Keep the src globs for local dev and editor-based generation.
   apis: ['./dist/**/*.js', './src/**/*.ts', './src/controllers/*.ts'],
 };
 
