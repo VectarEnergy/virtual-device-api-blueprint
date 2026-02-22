@@ -10,7 +10,7 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
 
-FROM node:18-alpine
+FROM node:18
 WORKDIR /usr/src/app
 
 # runtime deps

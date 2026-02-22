@@ -20,7 +20,9 @@ const options = {
             },
         ],
     },
-    apis: ['./src/routes/*.ts'],
+    // In production (container) we run compiled JS from `dist/` so include that as well.
+    // Keep the src globs for local dev and editor-based generation.
+    apis: ['./dist/**/*.js', './src/**/*.ts', './src/controllers/*.ts'],
 };
 const specs = (0, swagger_jsdoc_1.default)(options);
 function setupSwagger(app) {

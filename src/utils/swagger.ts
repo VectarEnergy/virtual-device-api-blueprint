@@ -16,7 +16,9 @@ const options = {
       },
     ],
   },
-  apis: ['./src/app.ts', './src/controllers/*.ts'],
+  // In production (container) we run compiled JS from `dist/` so include that as well.
+  // Keep the src globs for local dev and editor-based generation.
+  apis: ['./dist/**/*.js', './src/**/*.ts', './src/controllers/*.ts'],
 };
 
 const specs = swaggerJsdoc(options);
