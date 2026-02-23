@@ -20,6 +20,9 @@ RUN npm install --production=true
 # copy build output
 COPY --from=builder /usr/src/app/dist ./dist
 
+# copy utility scripts
+COPY clear_and_repopulate_today.js ./
+
 ENV NODE_ENV=production
 EXPOSE 3000
 

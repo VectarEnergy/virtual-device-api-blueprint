@@ -1,13 +1,6 @@
 import { Express } from 'express';
-import config from '../config/config';
 import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
-
-// Determine base URL for Swagger servers
-const baseUrl = process.env.BASE_URL
-  || (process.env.NODE_ENV === 'production'
-      ? `https://virtual-device-api-blueprint.onrender.com` // set your prod domain here if needed
-      : `http://localhost:${config.port || 3000}`);
 
 const options = {
   definition: {
@@ -19,10 +12,12 @@ const options = {
     },
     servers: [
       {
-        url: baseUrl,
+        url: 'http://localhost:3000',
       },
     ],
   },
+  // In production (container) we run compiled JS from `dist/` so include that as well.
+  // Keep the src globs for local dev and editor-based generation.
   apis: ['./dist/**/*.js', './src/**/*.ts', './src/controllers/*.ts'],
 };
 

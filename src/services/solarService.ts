@@ -1,3 +1,45 @@
+// Fetch and store for a specific hour interval (start/end in epoch seconds)
+export const fetchAndStoreHour = async (siteId: string, start: number, end: number, token?: string) => {
+  if (!config.victronApiUrl) throw new Error('VICTRON_API_URL not configured');
+  const url = buildVictronUrlForHour(siteId, start, end);
+  const headers: Record<string, string> = {};
+  if (token) headers['x-authorization'] = token;
+  else if (config.victronToken) headers['x-authorization'] = `Token ${config.victronToken}`;
+
+  const resp = await axios.get(url, { headers });
+  const data = (resp.data as any) || {};
+  // Log the raw API response for debugging
+  console.log(`\n[DEBUG] VRM API response for ${new Date(start*1000).toISOString()} - ${new Date(end*1000).toISOString()}:`);
+  console.dir(data, { depth: 10 });
+  const totals = data.totals ?? {};
+  let total = typeof totals[VICTRON_ATTR] === 'number' ? Number(totals[VICTRON_ATTR]) : undefined;
+  let absolute: number | undefined = undefined;
+  if (total === undefined) {
+    const records = data.records ?? {};
+    const series = records[VICTRON_ATTR] || [];
+    const parsed = parseSolarSeriesTotal(series);
+    total = Number(parsed.total || 0);
+    absolute = parsed.absolute;
+  }
+  total = Number(total || 0);
+  const retrievedAt = new Date().toISOString();
+  await updateSiteState(siteId, (s) => {
+    s.history = s.history || [];
+    const firstIdx = s.history.findIndex((h: any) => h && h.start === start && h.end === end);
+    if (firstIdx >= 0) {
+      s.history[firstIdx] = { start, end, value: Number(total.toFixed(6)), retrievedAt };
+      s.lastHour = s.history[firstIdx];
+      return;
+    }
+    s.cumulative = Number((s.cumulative + total).toFixed(6));
+    const rec: any = { start, end, value: Number(total.toFixed(6)), retrievedAt };
+    if (typeof absolute === 'number') rec.absolute = absolute;
+    rec.vrmTotal = Number(total.toFixed(6));
+    s.lastHour = rec;
+    s.history.push(rec);
+  });
+  return { start, end, total, absolute, retrievedAt };
+};
 import { getSiteState, seedSiteCumulative, updateSiteState } from '../lib/sequelizeAdapter';
 
 import axios from 'axios';
@@ -140,7 +182,10 @@ export const startScheduler = (siteId: string) => {
 
 export const getStoredSiteReport = async (siteId: string) => {
   const s = await getSiteState(siteId);
-  return s;
+  // Always recalculate cumulative as the sum of all valid history values
+  const history = Array.isArray(s.history) ? s.history : [];
+  const cumulative = history.reduce((acc, h) => acc + (typeof h.value === 'number' ? h.value : 0), 0);
+  return { ...s, cumulative };
 };
 
 export const seedInitialCumulative = async (siteId: string, value: number) => {
