@@ -1,6 +1,7 @@
-import config from '../config/config';
-import * as sqlite from './db';
 import * as pg from './pg';
+import * as sqlite from './db';
+
+import config from '../config/config';
 
 export const initPersistence = async () => {
   if (process.env.DATABASE_URL) {

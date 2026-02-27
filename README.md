@@ -25,25 +25,14 @@ The service collects hourly `solar_yield` data from Victron VRM and maintains a 
 
 ## Environment variables
 
-Create a `.env.local` file in the repo root and fill in your real values. The app loads `.env.local` first, then falls back to `.env`.
+Set these in a `.env` file or your environment:
 
-```bash
-# .env.local — copy this block and fill in real values
-PORT=3000
-VICTRON_API_URL=https://vrmapi.victronenergy.com/v2
-VICTRON_API_TOKEN=your_api_token_here
-VICTRON_SITE_ID=your_site_id_here
-NODE_ENV=development
-```
+- `PORT` — port to run the server on (default: 3000)
+- `VICTRON_API_URL` — VRM base URL (e.g. `https://vrmapi.victronenergy.com/v2`)
+- `VICTRON_API_TOKEN` — API token used by the scheduler (the code prefixes with `Token ` automatically)
+- `VICTRON_SITE_ID` — default installation id used by the scheduler and by the `/installations/solar-yield` endpoint
 
-| Variable | Description |
-|---|---|
-| `PORT` | Port to run the server on (default: `3000`) |
-| `VICTRON_API_URL` | VRM base URL (e.g. `https://vrmapi.victronenergy.com/v2`) |
-| `VICTRON_API_TOKEN` | API token used by the scheduler (the code prefixes with `Token ` automatically) |
-| `VICTRON_SITE_ID` | Default installation id used by the scheduler and by the `/installations/solar-yield` endpoint |
-
-**Security note:** `.env.local` is git-ignored. Never commit real tokens or secrets.
+**Security note:** keep `VICTRON_API_TOKEN` private and do not commit it.
 
 ## How to run
 

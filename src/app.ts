@@ -1,3 +1,5 @@
+import { initSequelize, migrateFromJsonIfNeeded as migrateJsonSequelize } from './lib/sequelizeAdapter';
+
 /**
  * @openapi
  * /installations/solar-yield:
@@ -90,7 +92,6 @@ import express from 'express';
 import { getSolarYield } from './controllers/deviceController';
 import { setupSwagger } from './utils/swagger';
 import { startScheduler } from './services/solarService';
-import { initSequelize, migrateFromJsonIfNeeded as migrateJsonSequelize } from './lib/sequelizeAdapter';
 import winston from 'winston';
 const app = express();
 
