@@ -18,7 +18,10 @@ const VICTRON_ATTR = "total_solar_yield";
  * Returns the start/end epoch-second range for the last fully completed UTC hour.
  * e.g. if now is 14:35 UTC, returns 13:00:00 → 13:59:59 UTC.
  */
-const getLastHourRangeUtc = (): { start: number; end: number } => {
+const getLastHourRangeUtc = (): {
+  start: number;
+  end: number;
+} => {
   const now = new Date();
   // Top of the current UTC hour (ms)
   const topOfCurrentHour = Date.UTC(
@@ -29,10 +32,13 @@ const getLastHourRangeUtc = (): { start: number; end: number } => {
     0,
     0,
   );
-  // Previous full hour window
-  const endMs = topOfCurrentHour - 1; // 13:59:59.999 UTC
+  // Previous full hour window [start, end]
   const startMs = topOfCurrentHour - 60 * 60 * 1000; // 13:00:00.000 UTC
-  return { start: Math.floor(startMs / 1000), end: Math.floor(endMs / 1000) };
+  const endMs = topOfCurrentHour - 1; // 13:59:59.999 UTC
+  return {
+    start: Math.floor(startMs / 1000),
+    end: Math.floor(endMs / 1000),
+  };
 };
 
 const buildVictronUrlForHour = (
@@ -141,24 +147,24 @@ export const fetchAndStoreHour = async (
       s.history[existingIdx] = {
         start,
         end,
-        value: Number(total.toFixed(6)),
+        value: total,
         retrievedAt,
       };
       s.lastHour = s.history[existingIdx];
       return;
     }
 
-    // New window — add to cumulative once
-    s.cumulative = Number((s.cumulative + total).toFixed(6));
+    // New window — add to cumulative once (no rounding at persistence time)
+    s.cumulative = Number(s.cumulative || 0) + total;
 
     const rec: any = {
       start,
       end,
-      value: Number(total.toFixed(6)),
+      value: total,
       retrievedAt,
     };
     if (typeof absolute === "number") rec.absolute = absolute;
-    rec.vrmTotal = Number(total.toFixed(6));
+    rec.vrmTotal = total;
 
     s.lastHour = rec;
     s.history.push(rec);
