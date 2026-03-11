@@ -7,48 +7,46 @@ import {
 import axios from "axios";
 import config from "../config/config";
 
-// Use the VRM attribute that returns hourly totals/absolute meter values
+// Use the VRM attribute that returns 15-minute totals/absolute meter values
 const VICTRON_ATTR = "total_solar_yield";
+
+// Interval duration in milliseconds
+const INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the start/end epoch-second range for the last fully completed UTC hour.
- * e.g. if now is 14:35 UTC, returns 13:00:00 → 13:59:59 UTC.
+ * Returns the start/end epoch-second range for the last fully completed 15-minute
+ * UTC interval.
+ * e.g. if now is 14:35 UTC, returns 14:15:00 → 14:29:59 UTC.
  */
-const getLastHourRangeUtc = (): {
+const getLastIntervalRangeUtc = (): {
   start: number;
   end: number;
 } => {
   const now = new Date();
-  // Top of the current UTC hour (ms)
-  const topOfCurrentHour = Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate(),
-    now.getUTCHours(),
-    0,
-    0,
-  );
-  // Previous full hour window [start, end]
-  const startMs = topOfCurrentHour - 60 * 60 * 1000; // 13:00:00.000 UTC
-  const endMs = topOfCurrentHour - 1; // 13:59:59.999 UTC
+  const nowMs = now.getTime();
+  // Floor to the current 15-minute boundary
+  const topOfCurrentInterval = Math.floor(nowMs / INTERVAL_MS) * INTERVAL_MS;
+  // Previous full 15-minute window [start, end]
+  const startMs = topOfCurrentInterval - INTERVAL_MS; // e.g. 14:15:00.000 UTC
+  const endMs = topOfCurrentInterval - 1;              // e.g. 14:29:59.999 UTC
   return {
     start: Math.floor(startMs / 1000),
     end: Math.floor(endMs / 1000),
   };
 };
 
-const buildVictronUrlForHour = (
+const buildVictronUrlForInterval = (
   siteId: string,
   start: number,
   end: number,
 ): string => {
   return (
     `${config.victronApiUrl}/installations/${siteId}/stats` +
-    `?type=custom&interval=hours` +
+    `?type=custom&interval=15mins` +
     `&attributeCodes%5B%5D=${encodeURIComponent(VICTRON_ATTR)}` +
     `&start=${start}&end=${end}`
   );
@@ -87,7 +85,7 @@ const parseSolarSeriesDelta = (
  * Fetch VRM stats for an arbitrary [start, end] epoch-second window and
  * persist the result via updateSiteState.
  */
-export const fetchAndStoreHour = async (
+export const fetchAndStoreInterval = async (
   siteId: string,
   start: number,
   end: number,
@@ -101,7 +99,7 @@ export const fetchAndStoreHour = async (
 }> => {
   if (!config.victronApiUrl) throw new Error("VICTRON_API_URL not configured");
 
-  const url = buildVictronUrlForHour(siteId, start, end);
+  const url = buildVictronUrlForInterval(siteId, start, end);
 
   const headers: Record<string, string> = {};
   if (token) headers["x-authorization"] = token;
@@ -174,11 +172,11 @@ export const fetchAndStoreHour = async (
 };
 
 /**
- * Convenience wrapper — fetches the last fully completed UTC hour.
+ * Convenience wrapper — fetches the last fully completed 15-minute UTC interval.
  */
-export const fetchAndStoreLastHour = async (siteId: string, token?: string) => {
-  const { start, end } = getLastHourRangeUtc();
-  return fetchAndStoreHour(siteId, start, end, token);
+export const fetchAndStoreLastInterval = async (siteId: string, token?: string) => {
+  const { start, end } = getLastIntervalRangeUtc();
+  return fetchAndStoreInterval(siteId, start, end, token);
 };
 
 // ---------------------------------------------------------------------------
@@ -187,9 +185,9 @@ export const fetchAndStoreLastHour = async (siteId: string, token?: string) => {
 
 /**
  * Fetch and store every missing completed UTC hour since the most recently
- * stored history record, up to the current last completed hour.
+ * stored history record, up to the current last completed 15-minute interval.
  */
-export const catchUpMissedHours = async (
+export const catchUpMissedIntervals = async (
   siteId: string,
   token?: string,
 ): Promise<void> => {
@@ -201,7 +199,7 @@ export const catchUpMissedHours = async (
     return Number.isFinite(end) ? Math.max(maxEnd, end) : maxEnd;
   }, 0);
 
-  const { start: lastCompletedStart } = getLastHourRangeUtc();
+  const { start: lastCompletedStart } = getLastIntervalRangeUtc();
 
   let nextStart = latestEnd > 0 ? latestEnd + 1 : lastCompletedStart;
   if (nextStart > lastCompletedStart) {
@@ -215,10 +213,10 @@ export const catchUpMissedHours = async (
 
   while (nextStart <= lastCompletedStart) {
     const start = nextStart;
-    const end = start + 60 * 60 - 1;
+    const end = start + 15 * 60 - 1; // 15-minute window
 
     try {
-      await fetchAndStoreHour(siteId, start, end, token);
+      await fetchAndStoreInterval(siteId, start, end, token);
       console.log(
         `[Scheduler] Catch-up fetched ${new Date(start * 1000).toISOString()} – ${new Date(end * 1000).toISOString()}`,
       );
@@ -236,12 +234,12 @@ export const catchUpMissedHours = async (
 };
 
 /**
- * On startup: run catch-up for missed completed hours, then schedule
- * subsequent fetches at the top of every hour (offset by 5 s to let VRM
- * finalise the previous hour's data).
+ * On startup: run catch-up for missed completed 15-minute intervals, then schedule
+ * subsequent fetches at the top of every 15-minute boundary (offset by 5 s to let
+ * VRM finalise the previous interval's data).
  *
- * The first scheduled run aligns to the next UTC top-of-hour (+5 seconds).
- * After that it fires every hour.
+ * The first scheduled run aligns to the next UTC 15-minute boundary (+5 seconds).
+ * After that it fires every 15 minutes.
  */
 export const startScheduler = (siteId: string): void => {
   const now = new Date();
@@ -258,9 +256,9 @@ export const startScheduler = (siteId: string): void => {
     running = true;
     try {
       if (reason === "startup") {
-        await catchUpMissedHours(siteId);
+        await catchUpMissedIntervals(siteId);
       } else {
-        await fetchAndStoreLastHour(siteId);
+        await fetchAndStoreLastInterval(siteId);
         console.log(
           `[Scheduler] Ran scheduled fetch at ${new Date().toISOString()}`,
         );
@@ -278,19 +276,15 @@ export const startScheduler = (siteId: string): void => {
   // Startup run (includes catch-up)
   void run("startup");
 
-  // Next UTC top-of-hour + 5 seconds
-  const nextHourMs = Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate(),
-    now.getUTCHours() + 1,
-    0,
-    5, // +5 s so VRM has time to finalise
-  );
+  // Next UTC 15-minute boundary + 5 seconds
+  const nowMs = now.getTime();
+  const next15MinBoundaryMs =
+    Math.ceil((nowMs + 1) / INTERVAL_MS) * INTERVAL_MS;
+  const nextRunMs = next15MinBoundaryMs + 5_000; // +5 s so VRM has time to finalise
 
-  const delay = nextHourMs - now.getTime();
+  const delay = nextRunMs - nowMs;
   console.log(
-    `[Scheduler] First scheduled run at ${new Date(nextHourMs).toISOString()} (in ${Math.round(delay / 60000)} min)`,
+    `[Scheduler] First scheduled run at ${new Date(nextRunMs).toISOString()} (in ${Math.round(delay / 60000)} min)`,
   );
 
   setTimeout(() => {
@@ -299,7 +293,7 @@ export const startScheduler = (siteId: string): void => {
       () => {
         void run("scheduled");
       },
-      60 * 60 * 1000,
+      INTERVAL_MS, // every 15 minutes
     );
   }, delay);
 };
@@ -323,7 +317,7 @@ export const fetchFromMonday6amToNow = async (
   monday.setUTCHours(0, 0, 0, 0);
   monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
 
-  // Iterate from Monday 06:00 UTC to now, one hour at a time
+  // Iterate from Monday 06:00 UTC to now, one 15-minute interval at a time
   let cursor = new Date(
     Date.UTC(
       monday.getUTCFullYear(),
@@ -337,15 +331,15 @@ export const fetchFromMonday6amToNow = async (
 
   while (cursor <= now) {
     const start = Math.floor(cursor.getTime() / 1000);
-    const end = Math.floor((cursor.getTime() + 60 * 60 * 1000 - 1) / 1000);
+    const end = Math.floor((cursor.getTime() + INTERVAL_MS - 1) / 1000);
 
     console.log(
       `[Manual] Fetching ${new Date(start * 1000).toISOString()} – ${new Date(end * 1000).toISOString()}`,
     );
 
-    await fetchAndStoreHour(siteId, start, end, token);
+    await fetchAndStoreInterval(siteId, start, end, token);
 
-    cursor = new Date(cursor.getTime() + 60 * 60 * 1000);
+    cursor = new Date(cursor.getTime() + INTERVAL_MS);
   }
 
   console.log("[Manual] Done fetching from Monday 06:00 UTC to now.");
