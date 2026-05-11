@@ -17,6 +17,10 @@ pnpm-debug.log*
 .env
 .env.*
 
+# Local / SQLite state (do not commit)
+data/solar-yield.sqlite
+data/solar-yield.json
+
 # OS files
 .DS_Store
 

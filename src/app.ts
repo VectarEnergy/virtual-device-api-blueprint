@@ -1,11 +1,16 @@
-import { initSequelize, migrateFromJsonIfNeeded as migrateJsonSequelize } from './lib/sequelizeAdapter';
+import {
+  initSequelize,
+  migrateFromJsonIfNeeded as migrateJsonSequelize,
+  closeSequelize,
+  checkDbConnection,
+} from './persistence/site-store';
 
 /**
  * @openapi
  * /installations/solar-yield:
  *   get:
- *     summary: Get stored cumulative solar_yield and last completed hour value for the default installation
- *     description: Returns the stored cumulative solar_yield (kWh) and the most recent completed hour's solar_yield increment. Data is collected hourly by a background scheduler and persisted to disk. This endpoint uses the `VICTRON_SITE_ID` configured in the environment to determine which installation to report on.
+ *     summary: Stored cumulative solar yield (kWh) and last completed 15m window
+ *     description: Uses `VICTRON_SITE_ID` when the path has no concrete id. Data is synced from Victron VRM `total_solar_yield` on a 15-minute scheduler.
  *     tags:
  *       - Installation
  *     parameters:
@@ -14,10 +19,10 @@ import { initSequelize, migrateFromJsonIfNeeded as migrateJsonSequelize } from '
  *         required: false
  *         schema:
  *           type: string
- *         description: Optional. Token to use when performing on-demand fetches. Background scheduler uses the VICTRON_API_TOKEN in .env.local.
+ *         description: Optional token for on-demand VRM fetches; the scheduler uses VICTRON_API_TOKEN.
  *     responses:
  *       200:
- *         description: Stored solar_yield report
+ *         description: Stored report
  *         content:
  *           application/json:
  *             schema:
@@ -28,113 +33,109 @@ import { initSequelize, migrateFromJsonIfNeeded as migrateJsonSequelize } from '
  *                   format: date-time
  *                 lastHour:
  *                   type: object
- *                   properties:
- *                     start:
- *                       type: string
- *                       format: date-time
- *                     end:
- *                       type: string
- *                       format: date-time
- *                     value:
- *                       type: number
- *                     retrievedAt:
- *                       type: string
- *                       format: date-time
+ *                   nullable: true
  *                 cumulative_kwh:
  *                   type: number
- */
-/**
- * @openapi
- * /installations/solar-yield:
- *   get:
- *     summary: Get stored cumulative solar_yield and last completed hour value for the default installation
- *     description: Returns the stored cumulative solar_yield (kWh) and the most recent completed hour's solar_yield increment. Data is collected hourly by a background scheduler and persisted to disk. This endpoint uses the `VICTRON_SITE_ID` configured in the environment to determine which installation to report on.
- *     tags:
- *       - Installation
- *     parameters:
- *       - in: header
- *         name: x-authorization
- *         required: false
- *         schema:
- *           type: string
- *         description: Optional. Token to use when performing on-demand fetches. Background scheduler uses the VICTRON_API_TOKEN in .env.local.
- *     responses:
- *       200:
- *         description: Stored solar_yield report
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 siteId:
- *                   type: string
- *                 retrievedAt:
- *                   type: string
- *                   format: date-time
- *                 lastHour:
- *                   type: object
- *                   properties:
- *                     start:
- *                       type: integer
- *                     end:
- *                       type: integer
- *                     value:
- *                       type: number
- *                     retrievedAt:
- *                       type: string
- *                       format: date-time
- *                 cumulative_kwh:
+ *                 cumulative_kwh_raw:
  *                   type: number
  */
+import http from 'http';
+
+import { setupSwagger } from './api/openapi/swagger-setup';
 import config from './config/config';
-import errorMiddleware from './middlewares/errorMiddleware';
+import { assertProductionConfig } from './config/validateEnv';
+import { logger } from './common/logging/logger';
+import errorMiddleware from './http/error.middleware';
 import express from 'express';
-import { getSolarYield } from './controllers/deviceController';
-import { setupSwagger } from './utils/swagger';
-import { startScheduler } from './services/solarService';
-import winston from 'winston';
+import { getSolarYield } from './http/solar-yield.controller';
+import { startScheduler, type SchedulerHandle } from './services/solarService';
+
+assertProductionConfig();
+
 const app = express();
+if (config.trustProxy) {
+  app.set('trust proxy', 1);
+}
 
 app.use(express.json());
 setupSwagger(app);
-// support both parameterized and default-site routes
-// only expose the single canonical route — uses VICTRON_SITE_ID from env
-// support both parameterized and default-site routes
-// both paths delegate to the same controller which resolves the site id
+
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
+app.get('/ready', async (_req, res) => {
+  try {
+    await checkDbConnection();
+    res.json({ status: 'ready' });
+  } catch {
+    res.status(503).json({ status: 'not_ready' });
+  }
+});
+
 app.get('/installations/:idSite/solar-yield', getSolarYield);
 app.get('/installations/solar-yield', getSolarYield);
 app.use(errorMiddleware);
 
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.json(),
-  transports: [
-    new winston.transports.Console(),
-    new winston.transports.File({ filename: 'logs/app.log' })
-  ]
-});
+let schedulerHandle: SchedulerHandle | undefined;
 
-// initialize DB and migrate JSON store if present, then start server + scheduler
 initSequelize()
   .then(async () => {
     try {
       await migrateJsonSequelize();
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('DB migration error', (err as any)?.message || err);
+      logger.error('JSON→DB migration error', {
+        message: (err as Error)?.message ?? String(err),
+      });
     }
 
-    app.listen(config.port, () => {
-      logger.info(`Server running on port ${config.port}`);
+    const server = http.createServer(app);
+
+    await new Promise<void>((resolve, reject) => {
+      server.listen(config.port, () => resolve());
+      server.once('error', reject);
     });
 
-    // start background scheduler for default site if configured
+    logger.info('Server listening', { port: config.port, env: config.env });
+
+    let shuttingDown = false;
+    const shutdown = (signal: string) => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      logger.info('Shutdown begin', { signal });
+
+      schedulerHandle?.stop();
+
+      server.close(async (closeErr) => {
+        if (closeErr) {
+          logger.error('HTTP server close error', {
+            message: closeErr.message,
+          });
+        }
+        try {
+          await closeSequelize();
+        } catch (e) {
+          logger.error('Sequelize close error', {
+            message: (e as Error)?.message ?? String(e),
+          });
+        }
+        process.exit(closeErr ? 1 : 0);
+      });
+
+      setTimeout(() => {
+        logger.error('Shutdown forced after timeout');
+        process.exit(1);
+      }, 25_000).unref();
+    };
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
+
     if (config.defaultSiteId) {
-      startScheduler(config.defaultSiteId);
+      schedulerHandle = startScheduler(config.defaultSiteId);
     }
   })
   .catch((err) => {
-    // eslint-disable-next-line no-console
-    console.error('DB init error', (err as any)?.message || err);
+    logger.error('DB init error', { message: (err as Error)?.message ?? String(err) });
     process.exit(1);
   });

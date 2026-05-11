@@ -3,6 +3,8 @@ import { DataTypes, Model, Sequelize } from 'sequelize';
 import fs from 'fs/promises';
 import path from 'path';
 
+import { runPendingMigrations } from './run-migrations';
+
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const SQLITE_PATH = path.join(DATA_DIR, 'solar-yield.sqlite');
 const JSON_STORE = path.join(DATA_DIR, 'solar-yield.json');
@@ -24,37 +26,55 @@ export const initSequelize = async () => {
   }
 
   if (process.env.DATABASE_URL) {
-
+    const poolMax = Math.min(
+      32,
+      Math.max(1, parseInt(process.env.DB_POOL_MAX || '5', 10) || 5),
+    );
+    const poolMin = Math.min(
+      poolMax,
+      Math.max(0, parseInt(process.env.DB_POOL_MIN || '0', 10) || 0),
+    );
     sequelize = new Sequelize(process.env.DATABASE_URL, {
       dialect: 'postgres',
       logging: false,
       dialectOptions: {
         ssl: {
           require: true,
-          // Allow self-signed / unverifiable certs in typical managed DB setups.
-          rejectUnauthorized: false
-        }
-      }
+          rejectUnauthorized: false,
+        },
+      },
+      pool: {
+        max: poolMax,
+        min: poolMin,
+        acquire: parseInt(process.env.DB_POOL_ACQUIRE_MS || '60000', 10) || 60000,
+        idle: parseInt(process.env.DB_POOL_IDLE_MS || '10000', 10) || 10000,
+      },
     });
   } else {
     sequelize = new Sequelize({ dialect: 'sqlite', storage: SQLITE_PATH, logging: false });
   }
+
+  await runPendingMigrations(sequelize);
 
   Site.init(
     {
       siteId: { type: DataTypes.STRING, primaryKey: true },
       cumulative: { type: DataTypes.DOUBLE, allowNull: false, defaultValue: 0 },
       lastHour: { type: DataTypes.JSON, allowNull: true },
-      history: { type: DataTypes.JSON, allowNull: true }
+      history: { type: DataTypes.JSON, allowNull: true },
     },
-    { sequelize, tableName: 'sites', timestamps: false }
+    { sequelize, tableName: 'sites', timestamps: false },
   );
-
-  await sequelize.sync();
 };
 
 const ensure = () => {
   if (!sequelize) throw new Error('Sequelize not initialized. Call initSequelize() first.');
+};
+
+/** For readiness probes (Postgres or SQLite). */
+export const checkDbConnection = async (): Promise<void> => {
+  ensure();
+  await sequelize!.authenticate();
 };
 
 export const getSiteState = async (siteId: string) => {
@@ -83,6 +103,17 @@ export const seedSiteCumulative = async (siteId: string, value: number, force = 
     return { cumulative: value, lastHour: cur.lastHour, history: cur.history };
   }
   return cur;
+};
+
+/** Wipe stored solar rows for one site (history, cumulative, lastHour). */
+export const resetSiteSolarState = async (siteId: string) => {
+  ensure();
+  await Site.upsert({
+    siteId,
+    cumulative: 0,
+    lastHour: null,
+    history: [],
+  });
 };
 
 export const migrateFromJsonIfNeeded = async () => {
