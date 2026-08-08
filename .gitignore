@@ -24,6 +24,4 @@ data/solar-yield.json
 # OS files
 .DS_Store
 
-
-
 .gitignore
